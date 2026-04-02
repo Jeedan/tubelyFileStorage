@@ -4,11 +4,7 @@ import { getVideo, updateVideo } from "../db/videos";
 import type { ApiConfig } from "../config";
 import type { BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
-
-type Thumbnail = {
-	data: ArrayBuffer;
-	mediaType: string;
-};
+import path from "path";
 
 export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 	const { videoId } = req.params as { videoId?: string };
@@ -36,17 +32,23 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 	}
 
 	const mediaType = file.type;
-	const imageData = await file.arrayBuffer();
 	const video = getVideo(cfg.db, videoId);
 	if (!video) throw new NotFoundError("Video not found");
 	if (video.userID !== userID)
 		throw new UserForbiddenError(
 			"Forbidden. The Video does not belong to the user",
 		);
-	const base64Encoded = Buffer.from(imageData).toString("base64");
-	// data:[<media-type>][;base64],<data>
-	const base64DataURL = `data:${mediaType};base64,${base64Encoded}`;
-	video.thumbnailURL = base64DataURL;
+	// save to file
+	if (!mediaType) {
+		throw new BadRequestError("Missing Content-Type for thumbnail");
+	}
+	const splitMediaType = mediaType.split("/");
+	const extension = splitMediaType[1];
+	const filename = `${videoId}.${extension}`;
+	const filePath = path.join(cfg.assetsRoot, filename);
+	await Bun.write(filePath, file);
+	video.thumbnailURL = `http://localhost:${cfg.port}/assets/${filename}`;
+
 	updateVideo(cfg.db, video);
 
 	return respondWithJSON(200, video);
