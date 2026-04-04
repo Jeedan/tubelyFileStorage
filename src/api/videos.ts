@@ -48,7 +48,6 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 		throw new BadRequestError("Invalid Video format");
 	}
 
-	// TODO later extract similar code from Thumbnail into helper function
 	const key = generateFileKey(contentType, "hex");
 	const tmpFilePath = path.join("/tmp", key);
 
