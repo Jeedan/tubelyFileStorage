@@ -4,11 +4,10 @@ import { type ApiConfig } from "../config";
 import type { BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import { getBearerToken, validateJWT } from "../auth";
-import { randomBytes } from "crypto";
 import { getVideo, updateVideo } from "../db/videos";
 import path from "path";
 import { uploadVideoToS3 } from "../s3";
-import { generateFileKey } from "./assets";
+import { generateFileKey, getVideoAspectRatio } from "./assets";
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 	const { videoId } = req.params as { videoId?: string };
@@ -52,12 +51,19 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 	const tmpFilePath = path.join("/tmp", key);
 
 	await Bun.write(tmpFilePath, file);
+	// get aspect Ratio from the tempfile
+	const aspectRatio = await getVideoAspectRatio(tmpFilePath);
+	const prefixedKey = `${aspectRatio}/${key}`;
 
 	// store it in s3client
-	await uploadVideoToS3(cfg, key, tmpFilePath, contentType);
+	await uploadVideoToS3(cfg, {
+		key: prefixedKey,
+		filePath: tmpFilePath,
+		contentType,
+	});
 
 	//update url with format: https://<bucket-name>.s3.<region>.amazonaws.com/<key>
-	video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${key}`;
+	video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${prefixedKey}`;
 
 	updateVideo(cfg.db, video);
 	// delete temporary file
