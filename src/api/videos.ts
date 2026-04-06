@@ -7,7 +7,12 @@ import { getBearerToken, validateJWT } from "../auth";
 import { getVideo, updateVideo } from "../db/videos";
 import path from "path";
 import { uploadVideoToS3 } from "../s3";
-import { generateFileKey, getVideoAspectRatio } from "./assets";
+import {
+	generateFileKey,
+	getVideoAspectRatio,
+	processVideoForFastStart,
+} from "./assets";
+import { rm } from "fs/promises";
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 	const { videoId } = req.params as { videoId?: string };
@@ -55,10 +60,12 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 	const aspectRatio = await getVideoAspectRatio(tmpFilePath);
 	const prefixedKey = `${aspectRatio}/${key}`;
 
+	const processedVideo = await processVideoForFastStart(tmpFilePath);
+
 	// store it in s3client
 	await uploadVideoToS3(cfg, {
 		key: prefixedKey,
-		filePath: tmpFilePath,
+		filePath: processedVideo,
 		contentType,
 	});
 
@@ -66,8 +73,11 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 	video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${prefixedKey}`;
 
 	updateVideo(cfg.db, video);
-	// delete temporary file
-	await Bun.file(tmpFilePath).delete();
-	console.log("Deleted temp file");
+	// delete temporary files concurrently
+	await Promise.all([
+		rm(tmpFilePath, { force: true }),
+		rm(processedVideo, { force: true }),
+	]);
+	console.log("Deleted temp files");
 	return respondWithJSON(200, video);
 }
