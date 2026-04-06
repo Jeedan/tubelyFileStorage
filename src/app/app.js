@@ -156,18 +156,20 @@ async function uploadThumbnail(videoID) {
 	setUploadButtonState(false, uploadBtnSelector);
 }
 
-async function uploadVideoFile(videoID) {
-	const videoFile = document.getElementById("video-file").files[0];
-	if (!videoFile) return;
+// DRAG AND DROP TESTING DELETE WHEN DONE
+
+// shared helper
+async function uploadVideoFromFile(file) {
+	if (!file) return;
 
 	const formData = new FormData();
-	formData.append("video", videoFile);
+	formData.append("video", file);
 
 	const uploadBtnSelector = "upload-video-btn";
 	setUploadButtonState(true, uploadBtnSelector);
 
 	try {
-		const res = await fetch(`/api/video_upload/${videoID}`, {
+		const res = await fetch(`/api/video_upload/${currentVideo.id}`, {
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${localStorage.getItem("token")}`,
@@ -180,14 +182,48 @@ async function uploadVideoFile(videoID) {
 				`Failed to upload video file. Error: ${data.error}`,
 			);
 		}
-
 		console.log("Video uploaded!");
-		await getVideo(videoID);
+		await getVideo(currentVideo.id);
 	} catch (error) {
 		alert(`Error: ${error.message}`);
 	}
 
 	setUploadButtonState(false, uploadBtnSelector);
+}
+const dropZone = document.getElementById("drop-zone");
+
+function resetDropZoneColor() {
+	dropZone.style.borderColor = "#ccc";
+}
+
+dropZone.addEventListener("dragover", (event) => {
+	event.preventDefault(); // required to allow dropping
+	dropZone.style.borderColor = "#7e57c2";
+});
+
+dropZone.addEventListener("dragleave", () => {
+	resetDropZoneColor();
+});
+
+// new drag and drop flow but prepare the file only
+let droppedFile = null;
+dropZone.addEventListener("drop", async (event) => {
+	event.preventDefault();
+	resetDropZoneColor();
+	const file = event.dataTransfer.files[0];
+	if (!file) return;
+	if (!file.type.startsWith("video/")) {
+		alert("Only video files are allowed");
+		return;
+	}
+
+	droppedFile = file;
+	dropZone.textContent = `Ready: ${droppedFile.name}`;
+});
+
+async function uploadVideoFile(videoID) {
+	const file = droppedFile || document.getElementById("video-file").files[0];
+	await uploadVideoFromFile(file);
 }
 
 const videoStateHandler = createVideoStateHandler();
