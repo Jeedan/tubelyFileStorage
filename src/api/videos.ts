@@ -1,12 +1,12 @@
 import { respondWithJSON } from "./json";
 
 import { type ApiConfig } from "../config";
-import type { BunRequest } from "bun";
+import { type BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import { getBearerToken, validateJWT } from "../auth";
 import { getVideo, updateVideo } from "../db/videos";
 import path from "path";
-import { uploadVideoToS3 } from "../s3";
+import { dbVideoToSignedVideo, uploadVideoToS3 } from "../s3";
 import {
 	generateFileKey,
 	getVideoAspectRatio,
@@ -52,7 +52,9 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 		throw new BadRequestError("Invalid Video format");
 	}
 
-	const key = generateFileKey(contentType, "hex");
+	//	const key = generateFileKey(contentType, "hex");
+	const key = `${video.id}.mp4`;
+
 	const tmpFilePath = path.join("/tmp", key);
 
 	await Bun.write(tmpFilePath, file);
@@ -60,24 +62,29 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 	const aspectRatio = await getVideoAspectRatio(tmpFilePath);
 	const prefixedKey = `${aspectRatio}/${key}`;
 
-	const processedVideo = await processVideoForFastStart(tmpFilePath);
+	const processedVideoPath = await processVideoForFastStart(tmpFilePath);
 
 	// store it in s3client
 	await uploadVideoToS3(cfg, {
 		key: prefixedKey,
-		filePath: processedVideo,
+		filePath: processedVideoPath,
 		contentType,
 	});
 
 	//update url with format: https://<bucket-name>.s3.<region>.amazonaws.com/<key>
-	video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${prefixedKey}`;
+	//video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${prefixedKey}`;
+
+	// presigned url
+	video.videoURL = prefixedKey;
 
 	updateVideo(cfg.db, video);
+
 	// delete temporary files concurrently
 	await Promise.all([
 		rm(tmpFilePath, { force: true }),
-		rm(processedVideo, { force: true }),
+		rm(processedVideoPath, { force: true }),
 	]);
 	console.log("Deleted temp files");
-	return respondWithJSON(200, video);
+	const videoWithPresignedURL = dbVideoToSignedVideo(cfg, video);
+	return respondWithJSON(200, videoWithPresignedURL);
 }
