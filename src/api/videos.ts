@@ -6,7 +6,7 @@ import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import { getBearerToken, validateJWT } from "../auth";
 import { getVideo, updateVideo } from "../db/videos";
 import path from "path";
-import { dbVideoToSignedVideo, uploadVideoToS3 } from "../s3";
+import { uploadFileToS3 } from "../s3";
 import {
 	generateFileKey,
 	getVideoAspectRatio,
@@ -52,9 +52,7 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 		throw new BadRequestError("Invalid Video format");
 	}
 
-	//	const key = generateFileKey(contentType, "hex");
-	const key = `${video.id}.mp4`;
-
+	const key = generateFileKey(contentType, "hex");
 	const tmpFilePath = path.join("/tmp", key);
 
 	await Bun.write(tmpFilePath, file);
@@ -65,17 +63,15 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 	const processedVideoPath = await processVideoForFastStart(tmpFilePath);
 
 	// store it in s3client
-	await uploadVideoToS3(cfg, {
+	await uploadFileToS3(cfg, {
 		key: prefixedKey,
 		filePath: processedVideoPath,
 		contentType,
 	});
 
-	//update url with format: https://<bucket-name>.s3.<region>.amazonaws.com/<key>
-	//video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${prefixedKey}`;
-
-	// presigned url
-	video.videoURL = prefixedKey;
+	// update url with format: https://<bucket-name>.s3.<region>.amazonaws.com/<key>
+	// CDN format: https://d1bp4ebcp0n9xg.cloudfront.net/portrait/568ad724-19ab-4ac1-864f-f73b40e26ab6.mp4
+	video.videoURL = `${cfg.s3CfDistribution}${prefixedKey}`;
 
 	updateVideo(cfg.db, video);
 
@@ -85,6 +81,5 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 		rm(processedVideoPath, { force: true }),
 	]);
 	console.log("Deleted temp files");
-	const videoWithPresignedURL = dbVideoToSignedVideo(cfg, video);
-	return respondWithJSON(200, videoWithPresignedURL);
+	return respondWithJSON(200, video);
 }

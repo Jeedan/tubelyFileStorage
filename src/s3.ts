@@ -1,19 +1,37 @@
 import type { ApiConfig } from "./config";
 import type { Video } from "./db/videos";
 
-type UploadVideo = {
+type FileUpload = {
 	key: string;
 	filePath: string;
 	contentType: string;
 };
 
-export async function uploadVideoToS3(cfg: ApiConfig, video: UploadVideo) {
-	const s3Client = cfg.s3Client;
-	const s3File = s3Client.file(video.key, { bucket: cfg.s3Bucket });
-	await s3File.write(Bun.file(video.filePath), { type: video.contentType });
+export async function uploadFileToS3(cfg: ApiConfig, file: FileUpload) {
+	const s3File = createS3File(cfg, cfg.s3Bucket, file);
+	await uploadFile(s3File, file);
 }
 
-function generatePresignedURL(cfg: ApiConfig, key: string, expireTime: number) {
+export async function uploadFileToPublicS3(cfg: ApiConfig, file: FileUpload) {
+	const s3File = createS3File(cfg, cfg.s3PublicBucket, file);
+	await uploadFile(s3File, file);
+}
+
+function createS3File(cfg: ApiConfig, bucket: string, file: FileUpload) {
+	const s3Client = cfg.s3Client;
+	return s3Client.file(file.key, { bucket: bucket });
+}
+
+async function uploadFile(s3File: Bun.S3File, file: FileUpload) {
+	await s3File.write(Bun.file(file.filePath), { type: file.contentType });
+}
+
+// same as below
+function deprecated_generatePresignedURL(
+	cfg: ApiConfig,
+	key: string,
+	expireTime: number,
+) {
 	const s3Client = cfg.s3Client;
 	const s3File = s3Client.file(key, { bucket: cfg.s3Bucket });
 	return s3File.presign({
@@ -22,8 +40,10 @@ function generatePresignedURL(cfg: ApiConfig, key: string, expireTime: number) {
 	});
 }
 
-export function dbVideoToSignedVideo(cfg: ApiConfig, video: Video) {
+// not using this anymore
+// it was an example on how to encrypt before using CDN
+export function deprecated_dbVideoToSignedVideo(cfg: ApiConfig, video: Video) {
 	if (!video.videoURL) return video;
-	video.videoURL = generatePresignedURL(cfg, video.videoURL, 3600);
+	video.videoURL = deprecated_generatePresignedURL(cfg, video.videoURL, 3600);
 	return video;
 }
